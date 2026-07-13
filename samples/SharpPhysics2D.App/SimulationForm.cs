@@ -21,12 +21,16 @@ public sealed class SimulationForm : Form
     private readonly System.Windows.Forms.Timer _timer;
     private readonly Random _rng = new();
 
+    private readonly Vector2 _gravity = new(0f, -18f);
+    private bool _gravityEnabled = true;
+
     public SimulationForm()
     {
         Text = "SharpPhysics2D — click to drop bodies";
         ClientSize = new Size(960, 640);
         BackColor = Color.FromArgb(24, 26, 32);
         DoubleBuffered = true;
+        KeyPreview = true;
         StartPosition = FormStartPosition.CenterScreen;
 
         _timer = new System.Windows.Forms.Timer { Interval = 16 };
@@ -121,6 +125,54 @@ public sealed class SimulationForm : Form
         return body;
     }
 
+    // --- input -----------------------------------------------------------
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button == MouseButtons.Left)
+            SpawnRandom(ScreenToWorld(e.Location));
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        switch (e.KeyCode)
+        {
+            case Keys.Space:
+                // A burst of bodies raining from the top edge.
+                for (int i = 0; i < 12; i++)
+                {
+                    float x = 1f + (float)_rng.NextDouble() * (WorldWidth - 2f);
+                    SpawnRandom(new Vector2(x, WorldHeight - 1f));
+                }
+                e.Handled = true;
+                break;
+
+            case Keys.C:
+                ClearDynamicBodies();
+                break;
+
+            case Keys.G:
+                _gravityEnabled = !_gravityEnabled;
+                _world.Gravity = _gravityEnabled ? _gravity : Vector2.Zero;
+                break;
+        }
+    }
+
+    private void ClearDynamicBodies()
+    {
+        for (int i = _world.Bodies.Count - 1; i >= 0; i--)
+        {
+            RigidBody body = _world.Bodies[i];
+            if (!body.IsStatic)
+            {
+                _colors.Remove(body);
+                _world.Remove(body);
+            }
+        }
+    }
+
     // --- rendering -------------------------------------------------------
 
     protected override void OnPaint(PaintEventArgs e)
@@ -163,7 +215,7 @@ public sealed class SimulationForm : Form
     {
         int dynamicCount = _world.Bodies.Count - _boundaries.Count;
         string text =
-            $"bodies: {dynamicCount}\n" +
+            $"bodies: {dynamicCount}    gravity: {(_gravityEnabled ? "on" : "off")}\n" +
             "left click: drop a body\n" +
             "space: burst   C: clear   G: toggle gravity";
         using var brush = new SolidBrush(Color.FromArgb(210, Color.White));
