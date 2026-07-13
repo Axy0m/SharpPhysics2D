@@ -17,10 +17,32 @@ It is built for learning and for embedding in your own game loop — no Unity, n
 ## Project layout
 
 ```
-src/SharpPhysics2D        The engine (class library)
+src/SharpPhysics2D            The engine (class library)
+samples/SharpPhysics2D.App    Interactive WinForms window (recommended)
 samples/SharpPhysics2D.Demo   A console demo that drops bodies under gravity
 tests/SharpPhysics2D.Tests    xUnit tests
 ```
+
+## Interactive app
+
+A real-time window that renders the simulation with GDI+ (no external
+dependencies). Bodies fall, bounce and collide against a floor and side walls.
+
+```bash
+dotnet run --project samples/SharpPhysics2D.App
+```
+
+Controls:
+
+| Input        | Action                          |
+|--------------|---------------------------------|
+| Left click   | Drop a body at the cursor       |
+| Space        | Rain a burst of bodies from top |
+| C            | Clear all dynamic bodies        |
+| G            | Toggle gravity on/off           |
+
+The window is Windows-only (WinForms). The engine library and console demo are
+cross-platform.
 
 ## Quick start
 
