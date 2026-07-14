@@ -6,7 +6,8 @@ namespace SharpPhysics2D.App;
 /// <summary>
 /// A real-time window that steps a <see cref="World"/> at ~60 Hz and paints the
 /// bodies with GDI+. World space is y-up; screen space is y-down, so every
-/// draw call runs through <see cref="WorldToScreen"/>.
+/// draw call runs through <see cref="WorldToScreen"/>. One body is a
+/// player-controlled box driven by the arrow keys / WASD.
 /// </summary>
 public sealed class SimulationForm : Form
 {
@@ -14,19 +15,25 @@ public sealed class SimulationForm : Form
     private const float PixelsPerUnit = 40f;
     private const float FixedDt = 1f / 60f;
     private const float WallThickness = 1f;
+    private const float PlayerMoveSpeed = 6f;
+    private const float PlayerJumpSpeed = 9f;
 
     private readonly World _world = new(gravity: new Vector2(0f, -18f));
     private readonly Dictionary<RigidBody, Color> _colors = new();
     private readonly List<RigidBody> _boundaries = new();
+    private readonly HashSet<Keys> _pressedKeys = new();
     private readonly System.Windows.Forms.Timer _timer;
     private readonly Random _rng = new();
 
     private readonly Vector2 _gravity = new(0f, -18f);
     private bool _gravityEnabled = true;
 
+    private RigidBody? _player;
+    private Vector2 _playerSpawn;
+
     public SimulationForm()
     {
-        Text = "SharpPhysics2D — click to drop bodies";
+        Text = "SharpPhysics2D — arrows/WASD to move, click to drop bodies";
         ClientSize = new Size(960, 640);
         BackColor = Color.FromArgb(24, 26, 32);
         DoubleBuffered = true;
@@ -42,9 +49,11 @@ public sealed class SimulationForm : Form
     {
         base.OnLoad(e);
         BuildBoundaries();
+        _playerSpawn = new Vector2(2f, WorldHeight - 2f);
+        _player = SpawnPlayer(_playerSpawn);
         // Seed the scene with a small pile so the window isn't empty on launch.
         for (int i = 0; i < 6; i++)
-            SpawnRandom(new Vector2(WorldWidth * 0.5f, WorldHeight - 1f - i));
+            SpawnRandom(new Vector2(WorldWidth * 0.65f, WorldHeight - 1f - i));
     }
 
     protected override void OnResize(EventArgs e)
@@ -59,8 +68,11 @@ public sealed class SimulationForm : Form
 
     private void Tick()
     {
+        UpdatePlayer();
         _world.Step(FixedDt);
         CullFallenBodies();
+        if (_player is not null && _player.Position.Y < -5f)
+            RespawnPlayer();
         Invalidate();
     }
 
@@ -92,18 +104,33 @@ public sealed class SimulationForm : Form
         }
     }
 
-    /// <summary>Removes dynamic bodies that have escaped below the view.</summary>
+    /// <summary>Removes dynamic bodies (other than the player) that have escaped below the view.</summary>
     private void CullFallenBodies()
     {
         for (int i = _world.Bodies.Count - 1; i >= 0; i--)
         {
             RigidBody body = _world.Bodies[i];
+            if (body == _player)
+                continue;
+
             if (!body.IsStatic && body.Position.Y < -5f)
             {
                 _colors.Remove(body);
                 _world.Remove(body);
             }
         }
+    }
+
+    private RigidBody SpawnPlayer(Vector2 position)
+    {
+        RigidBody body = RigidBody.CreateBox(1f, 1f, mass: 1f);
+        body.Position = position;
+        body.Restitution = 0f;
+        body.Friction = 0.5f;
+
+        _world.Add(body);
+        _colors[body] = Color.FromArgb(255, 221, 51);
+        return body;
     }
 
     private RigidBody SpawnRandom(Vector2 position)
@@ -137,6 +164,8 @@ public sealed class SimulationForm : Form
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
+        _pressedKeys.Add(e.KeyCode);
+
         switch (e.KeyCode)
         {
             case Keys.Space:
@@ -157,7 +186,62 @@ public sealed class SimulationForm : Form
                 _gravityEnabled = !_gravityEnabled;
                 _world.Gravity = _gravityEnabled ? _gravity : Vector2.Zero;
                 break;
+
+            case Keys.R:
+                RespawnPlayer();
+                break;
         }
+    }
+
+    protected override void OnKeyUp(KeyEventArgs e)
+    {
+        base.OnKeyUp(e);
+        _pressedKeys.Remove(e.KeyCode);
+    }
+
+    /// <summary>Drives the player from held movement keys; called once per tick before stepping the world.</summary>
+    private void UpdatePlayer()
+    {
+        if (_player is null)
+            return;
+
+        float direction = 0f;
+        if (_pressedKeys.Contains(Keys.Left) || _pressedKeys.Contains(Keys.A))
+            direction -= 1f;
+        if (_pressedKeys.Contains(Keys.Right) || _pressedKeys.Contains(Keys.D))
+            direction += 1f;
+        _player.Velocity = new Vector2(direction * PlayerMoveSpeed, _player.Velocity.Y);
+
+        bool jumpHeld = _pressedKeys.Contains(Keys.Up) || _pressedKeys.Contains(Keys.W);
+        if (jumpHeld && IsGrounded(_player))
+            _player.Velocity = new Vector2(_player.Velocity.X, PlayerJumpSpeed);
+    }
+
+    /// <summary>True if something sits directly beneath the body, within a thin skin distance.</summary>
+    private bool IsGrounded(RigidBody body, float skin = 0.05f)
+    {
+        AABB bounds = body.GetBounds();
+        var probe = new AABB(
+            new Vector2(bounds.Min.X, bounds.Min.Y - skin),
+            new Vector2(bounds.Max.X, bounds.Min.Y));
+
+        foreach (RigidBody other in _world.Bodies)
+        {
+            if (other == body)
+                continue;
+            if (probe.Overlaps(other.GetBounds()))
+                return true;
+        }
+        return false;
+    }
+
+    private void RespawnPlayer()
+    {
+        if (_player is null)
+            return;
+
+        _player.Position = _playerSpawn;
+        _player.Velocity = Vector2.Zero;
     }
 
     private void ClearDynamicBodies()
@@ -165,6 +249,9 @@ public sealed class SimulationForm : Form
         for (int i = _world.Bodies.Count - 1; i >= 0; i--)
         {
             RigidBody body = _world.Bodies[i];
+            if (body == _player)
+                continue;
+
             if (!body.IsStatic)
             {
                 _colors.Remove(body);
@@ -213,10 +300,11 @@ public sealed class SimulationForm : Form
 
     private void DrawHud(Graphics g)
     {
-        int dynamicCount = _world.Bodies.Count - _boundaries.Count;
+        int dynamicCount = _world.Bodies.Count - _boundaries.Count - (_player is not null ? 1 : 0);
         string text =
             $"bodies: {dynamicCount}    gravity: {(_gravityEnabled ? "on" : "off")}\n" +
             "left click: drop a body\n" +
+            "arrows/WASD: move + jump player   R: respawn player\n" +
             "space: burst   C: clear   G: toggle gravity";
         using var brush = new SolidBrush(Color.FromArgb(210, Color.White));
         using var font = new Font("Consolas", 10f);
